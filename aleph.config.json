@@ -1,8 +1,7 @@
 {
-  "step": 1,
+  "step": 2,
   "repoUrl": "https://github.com/9youngjun9-glitch/choi-bujang-secret-vault",
   "publicAppUrl": "https://replace-with-your-vercel-app.example",
-  "sampleMarker": "SAMPLE_NOTE_1",
   "judgeIssuer": "https://aleph-judge-production.up.railway.app/defense/judge",
   "identityProvider": null,
   "allowedRoutes": [],
