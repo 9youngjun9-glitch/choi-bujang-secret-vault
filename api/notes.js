@@ -1,38 +1,16 @@
-// 2단계: 메모는 코드와 정적 파일 밖(Supabase)에 두고, 서버 함수가 읽어 줍니다.
-// 서버 전용 키는 Vercel 환경변수에서만 읽습니다. 코드·Git·화면에는 넣지 않습니다.
-// 주의: 3단계 로그인을 붙이기 전까지 이 API는 누구나 호출할 수 있습니다. 가상 메모만 둡니다.
-import { createClient } from '@supabase/supabase-js';
+// 3단계: GET(목록)·POST(추가). 로그인한 사용자만 쓸 수 있습니다.
+// 요청 처리 규칙은 src/notes-api.mjs, 토큰 검사는 틀의 src/verify-login.mjs입니다.
+import { getNotesApi } from '../src/notes-runtime.mjs';
 
 export default async function handler(request, response) {
-  response.setHeader('Cache-Control', 'no-store');
-  if (request.method !== 'GET') {
-    response.setHeader('Allow', 'GET');
-    response.status(405).json({ error: 'METHOD_NOT_ALLOWED' });
-    return;
-  }
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
+  let api;
+  try {
+    api = await getNotesApi();
+  } catch (error) {
+    console.error('서버 설정 오류', error?.message ?? 'unknown');
+    response.setHeader('Cache-Control', 'no-store');
     response.status(503).json({ error: 'SERVER_NOT_CONFIGURED' });
     return;
   }
-  try {
-    const supabase = createClient(url, key, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-    const { data, error } = await supabase
-      .from('vault_notes')
-      .select('title, content')
-      .order('created_at', { ascending: true })
-      .order('title', { ascending: true });
-    if (error) {
-      console.error('vault_notes 조회 실패', error.code ?? 'unknown');
-      response.status(502).json({ error: 'NOTES_READ_FAILED' });
-      return;
-    }
-    response.status(200).json({ notes: data });
-  } catch {
-    console.error('vault_notes 조회 중 예외');
-    response.status(502).json({ error: 'NOTES_READ_FAILED' });
-  }
+  await api.collection(request, response);
 }

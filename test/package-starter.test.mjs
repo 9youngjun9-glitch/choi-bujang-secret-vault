@@ -5,10 +5,11 @@ import { test } from 'node:test';
 
 const baseline = JSON.parse(await readFile(new URL('../package/baseline-functions.json', import.meta.url)));
 // 학생이 단계 제작 중에 직접 추가한 서버 함수. 시작 틀 기준표(baseline-functions.json)는 바꾸지 않습니다.
-const addedByStudent = ['api/notes.js']; // 2단계: 자료를 읽어 주는 서버 함수
+const addedByStudent = ['api/notes.js', 'api/notes/[id].js']; // 2~3단계: 메모 서버 함수(목록·추가 / 한 건 조회·수정·삭제)
 
 test('패키징 함수 기준표는 시작 틀의 실제 API와 일치한다', async () => {
-  const actual = (await readdir(new URL('../api/', import.meta.url)))
+  // 하위 폴더(api/notes/[id].js)에 둔 서버 함수도 빠짐없이 셉니다.
+  const actual = (await readdir(new URL('../api/', import.meta.url), { recursive: true }))
     .filter(name => /\.(?:m?js|ts)$/u.test(name))
     .map(name => join('api', name).replaceAll('\\', '/')).sort();
   assert.equal(baseline.version, 1);

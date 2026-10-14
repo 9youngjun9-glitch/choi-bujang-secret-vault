@@ -6,47 +6,287 @@
   <title>BYTE BACK | 점령된 자료실</title>
   <style>
     :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    [hidden] { display: none !important; }
     body { margin: 0; min-height: 100vh; background: #101a28; color: #ecf4ff; }
     main { max-width: 760px; margin: 0 auto; padding: 44px 22px 64px; }
     .eyebrow { color: #8ad8df; font-size: 14px; font-weight: 700; letter-spacing: .08em; }
     h1 { margin: 16px 0; font-size: clamp(30px, 7vw, 48px); line-height: 1.2; }
     p { font-size: 17px; line-height: 1.7; color: #bfd0e5; }
     .notice { margin: 26px 0; padding: 18px; border: 1px solid #d07384; border-radius: 14px; color: #ffe3e8; background: #612a3544; }
+    form { display: grid; gap: 12px; margin: 18px 0; }
+    label { display: grid; gap: 6px; font-size: 15px; color: #bfd0e5; }
+    input, textarea { font: inherit; color: #ecf4ff; background: #0b1420; border: 1px solid #51667c; border-radius: 10px; padding: 11px 13px; }
+    input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid #8ad8df; outline-offset: 2px; }
+    button { font: inherit; font-weight: 600; color: #101a28; background: #8ad8df; border: 0; border-radius: 10px; padding: 10px 18px; cursor: pointer; }
+    button.secondary { color: #ecf4ff; background: #2a3d54; }
+    button.danger { color: #ffe3e8; background: #8c3345; }
+    button:disabled { opacity: .55; cursor: wait; }
+    .session { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border: 1px solid #51667c; border-radius: 14px; background: #1a2a3d; }
+    .message { margin: 12px 0; font-size: 15px; }
+    .message.error { color: #ff9fb0; }
+    .message.ok { color: #8ad8df; }
     ul { list-style: none; display: grid; gap: 12px; padding: 0; }
     li { border: 1px solid #51667c; border-radius: 14px; padding: 17px 19px; background: #1a2a3d; }
-    strong { display: block; font-size: 18px; margin-bottom: 5px; }
-    li span { color: #bfd0e5; }
+    li strong { display: block; font-size: 18px; margin-bottom: 5px; }
+    li span { display: block; color: #bfd0e5; white-space: pre-wrap; }
+    .actions { display: flex; gap: 8px; margin-top: 12px; }
+    .edit { display: grid; gap: 10px; }
   </style>
 </head>
 <body>
   <main>
-    <div class="eyebrow">BYTE BACK · 2단계 자료 이동</div>
+    <div class="eyebrow">BYTE BACK · 3단계 진짜 로그인</div>
     <h1>점령된 자료실</h1>
-    <p>자료를 코드와 공개 파일 밖으로 옮겼습니다. 아래 기록은 모두 실습을 위해 만든 가상 자료이며, 서버 함수가 학습용 DB에서 읽어 옵니다.</p>
-    <div class="notice">공개 파일에서는 사라졌지만, 서버 API는 아직 로그인 없이 누구나 부를 수 있습니다. 다음 제작 단계에서 접근을 막아 주세요.</div>
-    <ul id="notes" aria-live="polite"><li>가상 자료를 불러오는 중입니다.</li></ul>
+    <p>자료는 서버가 로그인한 사람에게만 돌려줍니다. 아래 기록은 모두 실습을 위해 만든 가상 자료입니다.</p>
+    <div class="notice">로그인은 막았지만 아직 소유자 검사는 없습니다. 로그인한 다른 사용자도 메모의 id를 알면 남의 메모를 고칠 수 있습니다. 4단계에서 막습니다.</div>
+
+    <section id="auth-checking" aria-live="polite">로그인 상태를 확인하는 중입니다.</section>
+
+    <section id="logged-out" hidden>
+      <form id="login-form" novalidate>
+        <label>이메일
+          <input id="email" name="email" type="email" autocomplete="username" inputmode="email">
+        </label>
+        <label>비밀번호
+          <input id="password" name="password" type="password" autocomplete="current-password">
+        </label>
+        <button id="login-button" type="submit">로그인</button>
+      </form>
+      <p id="login-message" class="message error" role="alert" hidden></p>
+      <p id="locked">로그인하지 않으면 자료를 볼 수 없습니다.</p>
+    </section>
+
+    <section id="logged-in" hidden>
+      <div class="session">
+        <span>로그인됨: <strong id="session-email"></strong></span>
+        <button id="logout-button" type="button" class="secondary">로그아웃</button>
+      </div>
+      <form id="add-form">
+        <label>제목 <input id="new-title" maxlength="200" autocomplete="off"></label>
+        <label>내용 <textarea id="new-body" rows="3" maxlength="5000"></textarea></label>
+        <button type="submit">메모 추가</button>
+      </form>
+      <p id="vault-message" class="message" role="status"></p>
+      <ul id="notes" aria-live="polite"></ul>
+    </section>
   </main>
+
   <script type="module">
-    const list = document.querySelector('#notes');
+    // 공개용 값입니다(프로젝트 주소와 publishable 키). 서버 전용 키는 절대 이 파일에 넣지 않습니다.
+    const SUPABASE_URL = 'https://lvcjqoskhjjgqdphmsxn.supabase.co';
+    const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_exh9C0xtmIbWjaYalL7LRg_Ny84b-zN';
+    const SDK_URL = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm';
+
+    const $ = (id) => document.getElementById(id);
+    const LOGIN_REASONS = {
+      invalid_credentials: '이메일 또는 비밀번호가 맞지 않습니다.',
+      email_not_confirmed: '이메일 인증이 아직 끝나지 않았습니다. 메일함의 인증 링크를 누른 뒤 다시 시도하세요.',
+      over_request_rate_limit: '로그인 시도가 너무 많습니다. 잠시 뒤 다시 시도하세요.',
+      user_banned: '이 계정은 지금 사용할 수 없습니다.',
+      validation_failed: '이메일 형식을 확인하세요.',
+    };
+    const API_REASONS = {
+      INVALID_TITLE: '제목을 1~200자로 입력하세요.',
+      INVALID_BODY: '내용은 5000자 이하로 입력하세요.',
+      INVALID_JSON: '보낸 내용을 읽을 수 없습니다.',
+      NOT_FOUND: '메모를 찾을 수 없습니다. 이미 삭제되었을 수 있습니다.',
+      SERVER_NOT_CONFIGURED: '서버 설정이 아직 끝나지 않았습니다.',
+      AUTH_UNAVAILABLE: '로그인 확인 서버에 연결하지 못했습니다.',
+      NOTES_STORE_FAILED: '서버가 자료를 처리하지 못했습니다.',
+    };
+
+    function loginReason(error) {
+      if (LOGIN_REASONS[error?.code]) return LOGIN_REASONS[error.code];
+      if (error?.status === 0 || /fetch|network/i.test(error?.message ?? '')) {
+        return '서버에 연결하지 못했습니다. 네트워크를 확인하세요.';
+      }
+      return `로그인에 실패했습니다. (${error?.message ?? '알 수 없는 오류'})`;
+    }
+    function showLoginError(text) {
+      $('login-message').textContent = text;
+      $('login-message').hidden = !text;
+    }
+    function say(text, isError = false) {
+      const line = $('vault-message');
+      line.textContent = text;
+      line.className = `message ${isError ? 'error' : 'ok'}`;
+    }
+    function show(state) {
+      $('auth-checking').hidden = state !== 'checking';
+      $('logged-out').hidden = state !== 'out';
+      $('logged-in').hidden = state !== 'in';
+    }
+    function el(tag, text, className) {
+      const node = document.createElement(tag);
+      node.textContent = text;
+      if (className) node.className = className;
+      return node;
+    }
+    function button(text, onClick, className) {
+      const node = el('button', text, className);
+      node.type = 'button';
+      node.addEventListener('click', onClick);
+      return node;
+    }
+
+    let supabase;
     try {
-      const response = await fetch('/api/notes', { cache: 'no-store' });
-      if (!response.ok) throw new Error(`서버에서 자료를 읽지 못했습니다. (HTTP ${response.status})`);
-      const data = await response.json();
-      if (!Array.isArray(data.notes)) throw new Error('자료 형식이 맞지 않습니다.');
-      if (data.notes.length === 0) throw new Error('서버에 가상 자료가 아직 없습니다.');
-      list.replaceChildren(...data.notes.map(note => {
-        const item = document.createElement('li');
-        const title = document.createElement('strong');
-        const content = document.createElement('span');
-        title.textContent = note.title;
-        content.textContent = note.content;
-        item.append(title, content);
-        return item;
-      }));
-    } catch (error) {
+      const { createClient } = await import(SDK_URL);
+      supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+    } catch {
+      show('out');
+      $('login-form').hidden = true;
+      $('locked').textContent = '로그인 모듈을 불러오지 못했습니다. 네트워크를 확인하고 새로고침하세요.';
+    }
+
+    let currentUserId = null;
+    function applySession(session) {
+      if (!session) {
+        currentUserId = null;
+        $('notes').replaceChildren();   // 로그아웃하면 화면의 자료를 지웁니다.
+        $('session-email').textContent = '';
+        say('');
+        show('out');
+        return;
+      }
+      $('session-email').textContent = session.user?.email ?? '';
+      show('in');
+      if (currentUserId !== session.user?.id) {
+        currentUserId = session.user?.id ?? null;
+        loadNotes();
+      }
+    }
+
+    async function api(path, { method = 'GET', body } = {}) {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if (!token) { applySession(null); throw new Error('로그인이 필요합니다.'); }
+      const headers = { Authorization: `Bearer ${token}` };
+      if (body !== undefined) headers['Content-Type'] = 'application/json';
+      const response = await fetch(path, {
+        method, headers, cache: 'no-store', body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      if (response.status === 401) {
+        await supabase.auth.signOut();
+        applySession(null);
+        showLoginError('서버가 로그인을 인정하지 않았습니다. 다시 로그인하세요.');
+        throw new Error('로그인이 필요합니다.');
+      }
+      let data = null;
+      try { data = await response.json(); } catch { /* 본문이 없거나 JSON이 아님 */ }
+      if (!response.ok) {
+        throw new Error(API_REASONS[data?.error] ?? `요청이 거부되었습니다. (HTTP ${response.status})`);
+      }
+      return data;
+    }
+
+    function noteCard(note) {
       const item = document.createElement('li');
-      item.textContent = error.message;
-      list.replaceChildren(item);
+      item.dataset.id = note.id;
+      const draw = () => {
+        const actions = el('div', '', 'actions');
+        actions.append(
+          button('수정', drawEdit, 'secondary'),
+          button('삭제', async () => {
+            if (!confirm('이 메모를 삭제할까요?')) return;
+            try {
+              await api(`/api/notes/${note.id}`, { method: 'DELETE' });
+              item.remove();
+              say('삭제했습니다.');
+              if (!$('notes').children.length) renderNotes([]);
+            } catch (error) { say(error.message, true); }
+          }, 'danger'),
+        );
+        item.replaceChildren(el('strong', note.title), el('span', note.body), actions);
+      };
+      const drawEdit = () => {
+        const form = el('div', '', 'edit');
+        const title = document.createElement('input');
+        title.value = note.title; title.maxLength = 200; title.setAttribute('aria-label', '제목');
+        const body = document.createElement('textarea');
+        body.value = note.body; body.rows = 3; body.maxLength = 5000; body.setAttribute('aria-label', '내용');
+        const actions = el('div', '', 'actions');
+        actions.append(
+          button('저장', async () => {
+            try {
+              const updated = await api(`/api/notes/${note.id}`, {
+                method: 'PUT', body: { title: title.value, body: body.value },
+              });
+              note.title = updated.title; note.body = updated.body;
+              draw();
+              say('수정했습니다.');
+            } catch (error) { say(error.message, true); }
+          }),
+          button('취소', draw, 'secondary'),
+        );
+        form.append(title, body, actions);
+        item.replaceChildren(form);
+      };
+      draw();
+      return item;
+    }
+
+    function renderNotes(notes) {
+      const list = $('notes');
+      if (!notes.length) { list.replaceChildren(el('li', '아직 메모가 없습니다. 위에서 추가해 보세요.')); return; }
+      list.replaceChildren(...notes.map(noteCard));
+    }
+
+    async function loadNotes() {
+      try {
+        const notes = await api('/api/notes');
+        if (!Array.isArray(notes)) throw new Error('자료 형식이 맞지 않습니다.');
+        renderNotes(notes);
+      } catch (error) {
+        $('notes').replaceChildren(el('li', error.message));
+      }
+    }
+
+    if (supabase) {
+      $('login-form').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const email = $('email').value.trim();
+        const password = $('password').value;
+        showLoginError('');
+        if (!email || !password) { showLoginError('이메일과 비밀번호를 모두 입력하세요.'); return; }
+        const submit = $('login-button');
+        submit.disabled = true;
+        try {
+          const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+          if (error) showLoginError(loginReason(error));
+          else applySession(data.session);
+        } catch {
+          showLoginError('서버에 연결하지 못했습니다. 네트워크를 확인하세요.');
+        } finally {
+          $('password').value = '';
+          submit.disabled = false;
+        }
+      });
+
+      $('logout-button').addEventListener('click', async () => {
+        try { await supabase.auth.signOut(); } finally { applySession(null); }
+      });
+
+      $('add-form').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const title = $('new-title').value;
+        const body = $('new-body').value;
+        try {
+          await api('/api/notes', { method: 'POST', body: { title, body } });
+          $('new-title').value = ''; $('new-body').value = '';
+          say('추가했습니다.');
+          await loadNotes();
+        } catch (error) { say(error.message, true); }
+      });
+
+      // 이 콜백 안에서는 supabase 호출을 기다리지 않습니다(SDK 권장).
+      supabase.auth.onAuthStateChange((_event, session) => { setTimeout(() => applySession(session), 0); });
+      try {
+        const { data } = await supabase.auth.getSession();
+        applySession(data?.session ?? null);
+      } catch {
+        applySession(null);
+      }
     }
   </script>
 </body>
