@@ -1,5 +1,5 @@
-// 3단계: GET(한 건)·PUT(수정)·DELETE(삭제). 로그인한 사용자만 쓸 수 있습니다.
-// 아직 소유자 검사는 없습니다(4단계에서 추가합니다).
+// GET(한 건)·PUT(수정)·DELETE(삭제). 로그인한 사용자만 쓸 수 있고(3단계),
+// 검증한 사용자 ID와 메모의 owner_id가 같은 메모에만 적용됩니다(4단계, 규칙은 src/notes-api.mjs).
 import { getNotesApi } from '../../src/notes-runtime.mjs';
 
 export default async function handler(request, response) {

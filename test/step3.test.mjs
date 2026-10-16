@@ -22,17 +22,18 @@ function fakeResponse() {
 }
 
 function memoryStore() {
-  const rows = new Map([['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', { ownerId: null, title: '가상', body: '주인 없는 가상 메모' }]]);
+  // 4단계부터 모든 메모에 주인이 있습니다(가상 메모 4건은 A에게 연결됨).
+  const rows = new Map([['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', { ownerId: USER_A, title: '가상', body: 'A의 가상 메모' }]]);
   const calls = [];
   let counter = 0;
   return {
     rows, calls,
     async list(userId) {
       calls.push(['list', userId]);
-      return [...rows].filter(([, r]) => r.ownerId === userId || r.ownerId === null)
+      return [...rows].filter(([, r]) => r.ownerId === userId)
         .map(([id, r]) => ({ id, title: r.title, body: r.body }));
     },
-    async get(id) { calls.push(['get', id]); const r = rows.get(id); return r ? { id, title: r.title, body: r.body } : null; },
+    async get(id) { calls.push(['get', id]); const r = rows.get(id); return r ? { id, title: r.title, body: r.body, ownerId: r.ownerId } : null; },
     async create(input) {
       calls.push(['create', input]);
       const id = input.id ?? `bbbbbbbb-bbbb-4bbb-8bbb-${String(++counter).padStart(12, '0')}`;
@@ -40,14 +41,18 @@ function memoryStore() {
       rows.set(id, { ownerId: input.ownerId, title: input.title, body: input.body });
       return { id };
     },
-    async update(id, fields) {
-      calls.push(['update', id, fields]);
+    async update(id, userId, fields) {
+      calls.push(['update', id, userId, fields]);
       const r = rows.get(id);
-      if (!r) return null;
+      if (!r || r.ownerId !== userId) return null;
       Object.assign(r, fields);
-      return { id, title: r.title, body: r.body };
+      return { id, title: r.title, body: r.body, ownerId: r.ownerId };
     },
-    async remove(id) { calls.push(['remove', id]); return rows.delete(id); },
+    async remove(id, userId) {
+      calls.push(['remove', id, userId]);
+      const r = rows.get(id);
+      return Boolean(r && r.ownerId === userId && rows.delete(id));
+    },
   };
 }
 
@@ -116,9 +121,9 @@ test('소유자는 검사가 끝난 토큰의 사용자 ID뿐이고 브라우저
   assert.equal(response.statusCode, 201);
   const [, input] = store.calls.find(([name]) => name === 'create');
   assert.deepEqual(input, { id: undefined, ownerId: USER_A, title: '제목', body: '내용' });
-  // 목록은 로그인한 사용자 기준: B는 A의 새 메모를 목록에서 보지 못하고 주인 없는 가상 메모는 본다.
+  // 목록은 로그인한 사용자 기준(4단계부터 본인 메모만): B는 A의 메모를 하나도 보지 못한다.
   const listB = await call(api.collection, { token: 'token-b' });
-  assert.deepEqual(listB.body.map((note) => note.title), ['가상']);
+  assert.deepEqual(listB.body, []);
 });
 
 test('POST의 id는 UUID일 때만 받고 이미 있으면 덮어쓰지 않는다', async () => {
@@ -184,7 +189,8 @@ test('Supabase 저장소는 content↔body를 바꾸고 owner_id를 저장하며
   const list = fakeSupabase({ data: [{ id: 'i1', title: 't', content: 'c', owner_id: USER_A }], error: null });
   const notes = await createSupabaseNotesStore(list).list(USER_A);
   assert.deepEqual(notes, [{ id: 'i1', title: 't', body: 'c' }]);
-  assert.deepEqual(list.calls.find(([name]) => name === 'or'), ['or', `owner_id.eq.${USER_A},owner_id.is.null`]);
+  assert.deepEqual(list.calls.find(([name]) => name === 'eq'), ['eq', 'owner_id', USER_A]);
+  assert.equal(list.calls.some(([name]) => name === 'or'), false, '4단계부터 주인 없는 행을 함께 돌려주지 않는다');
   await assert.rejects(createSupabaseNotesStore(fakeSupabase({ data: [], error: null })).list("x'),owner_id.not.is.null,(y"));
 
   const insert = fakeSupabase({ data: { id: 'new-id' }, error: null });
@@ -197,11 +203,11 @@ test('Supabase 저장소는 content↔body를 바꾸고 owner_id를 저장하며
   await assert.rejects(createSupabaseNotesStore(conflict).create({ ownerId: USER_A, title: 't', body: 'b' }), { code: 'ID_EXISTS' });
 
   const update = fakeSupabase({ data: { id: 'i1', title: 'n', content: 'm' }, error: null });
-  assert.deepEqual(await createSupabaseNotesStore(update).update('i1', { body: 'm' }), { id: 'i1', title: 'n', body: 'm' });
+  assert.deepEqual(await createSupabaseNotesStore(update).update('i1', USER_A, { body: 'm' }), { id: 'i1', title: 'n', body: 'm', ownerId: null });
   assert.deepEqual(update.calls.find(([name]) => name === 'update'), ['update', { content: 'm' }]);
-  assert.equal(await createSupabaseNotesStore(fakeSupabase({ data: null, error: null })).update('i1', { title: 'n' }), null);
-  assert.equal(await createSupabaseNotesStore(fakeSupabase({ data: null, error: null })).remove('i1'), false);
-  assert.equal(await createSupabaseNotesStore(fakeSupabase({ data: { id: 'i1' }, error: null })).remove('i1'), true);
+  assert.equal(await createSupabaseNotesStore(fakeSupabase({ data: null, error: null })).update('i1', USER_A, { title: 'n' }), null);
+  assert.equal(await createSupabaseNotesStore(fakeSupabase({ data: null, error: null })).remove('i1', USER_A), false);
+  assert.equal(await createSupabaseNotesStore(fakeSupabase({ data: { id: 'i1' }, error: null })).remove('i1', USER_A), true);
   assert.equal(await createSupabaseNotesStore(fakeSupabase({ data: null, error: null })).get('i1'), null);
 });
 
