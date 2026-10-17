@@ -9,6 +9,7 @@
     "test:step2": "node --test test/step2.test.mjs",
     "test:step3": "node --test test/step3.test.mjs",
     "test:step4": "node --test test/step4.test.mjs",
+    "test:step5": "node --test test/step5.test.mjs",
     "bundle": "node scripts/bundle.mjs",
     "decider:test": "node scripts/decider-test.mjs",
     "detect:test": "node scripts/detect-test.mjs",
