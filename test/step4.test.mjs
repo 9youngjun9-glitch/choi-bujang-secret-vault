@@ -6,6 +6,8 @@ import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { createNotesApi } from '../src/notes-api.mjs';
 import { createSupabaseNotesStore } from '../src/notes-runtime.mjs';
+import { runAttackChecks } from '../src/attack-check.mjs';
+import { deploymentIdentity } from '../scripts/deployment-identity.mjs';
 
 const USER_A = '11111111-1111-4111-8111-111111111111';
 const USER_B = '22222222-2222-4222-8222-222222222222';
@@ -264,4 +266,93 @@ test('allowedRoutes는 이 API가 실제로 받는 메서드·경로와 같다',
   for (const method of item.headers.Allow.split(', ')) routes.push(`${method} /api/notes/:id`);
   assert.deepEqual([...routes].sort(), [...config.allowedRoutes].sort());
   for (const file of ['../api/notes.js', '../api/notes/[id].js']) await readFile(new URL(file, import.meta.url), 'utf8');
+});
+
+test('aleph.config.json은 4단계이고 로그인 설정에 비밀 값이 없으며 4단계 배포 식별을 허용한다', () => {
+  assert.equal(config.step, 4);
+  assert.deepEqual(Object.keys(config.identityProvider).sort(), ['audience', 'issuer', 'jwksUrl']);
+  assert.doesNotMatch(JSON.stringify(config), /sb_secret_|service_role|eyJ|password|apikey/iu);
+  const env = {
+    VERCEL_GIT_PROVIDER: 'github', VERCEL_GIT_REPO_OWNER: 'Student-A', VERCEL_GIT_REPO_SLUG: 'aleph-defense',
+    VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40), VERCEL_URL: 'student-defense-123.vercel.app',
+  };
+  assert.equal(deploymentIdentity(env, { step: 4, judgeIssuer: config.judgeIssuer }).step, 4);
+  assert.throws(() => deploymentIdentity(env, { step: 5, judgeIssuer: config.judgeIssuer }));
+});
+
+// ---- 자기 점검(B가 A의 메모를 건드려 보는 점검)을 가짜 서버로 시험합니다 ----
+function fakeServer({ enforceOwner }) {
+  const notes = new Map();
+  let serial = 0;
+  const logins = { 'a@example.com': ['pw-a', 'token-a'], 'b@example.com': ['pw-b', 'token-b'] };
+  const who = { 'Bearer token-a': 'A', 'Bearer token-b': 'B' };
+  const json = (status, body) => new Response(JSON.stringify(body), { status });
+  return async (url, init = {}) => {
+    const { pathname } = new URL(String(url));
+    const method = init.method ?? 'GET';
+    if (pathname === '/auth/v1/token') {
+      const { email, password } = JSON.parse(init.body);
+      const entry = logins[email];
+      return entry && entry[0] === password ? json(200, { access_token: entry[1] }) : json(400, {});
+    }
+    if (pathname === '/data.json') return new Response('Not Found', { status: 404 });
+    const me = who[init.headers?.Authorization];
+    if (!me) return json(401, { error: 'UNAUTHORIZED' });
+    const body = init.body ? JSON.parse(init.body) : {};
+    if (pathname === '/api/notes') {
+      if (method === 'POST') { const id = `note-${++serial}`; notes.set(id, { owner: me, title: body.title }); return json(201, { id }); }
+      return json(200, [...notes].filter(([, row]) => !enforceOwner || row.owner === me).map(([id, row]) => ({ id, title: row.title })));
+    }
+    const id = pathname.split('/').pop();
+    const note = notes.get(id);
+    if (!note || (enforceOwner && note.owner !== me)) return json(404, { error: 'NOT_FOUND' });
+    if (method === 'GET') return json(200, { id, title: note.title });
+    if (method === 'PUT') { note.title = body.title ?? note.title; return json(200, { id, title: note.title }); }
+    if (method === 'DELETE') { notes.delete(id); return json(200, { id }); }
+    return json(405, {});
+  };
+}
+
+async function withCheckEnv(values, run) {
+  const names = ['ALEPH_CHECK_EMAIL', 'ALEPH_CHECK_PASSWORD', 'ALEPH_CHECK_EMAIL_B', 'ALEPH_CHECK_PASSWORD_B'];
+  const saved = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  const original = globalThis.fetch;
+  for (const name of names) delete process.env[name];
+  Object.assign(process.env, values);
+  try { return await run(); } finally {
+    globalThis.fetch = original;
+    for (const name of names) { if (saved[name] === undefined) delete process.env[name]; else process.env[name] = saved[name]; }
+  }
+}
+
+const BOTH = { ALEPH_CHECK_EMAIL: 'a@example.com', ALEPH_CHECK_PASSWORD: 'pw-a', ALEPH_CHECK_EMAIL_B: 'b@example.com', ALEPH_CHECK_PASSWORD_B: 'pw-b' };
+
+test('4단계 자기 점검: 소유자를 지키는 서버는 모두 거부됨으로, 지키지 않는 서버는 거부되지 않음으로 기록하고 토큰·비밀번호·id는 싣지 않는다', async () => {
+  await withCheckEnv(BOTH, async () => {
+    globalThis.fetch = fakeServer({ enforceOwner: true });
+    const safe = await runAttackChecks(config);
+    assert.equal(safe.at(-1).attackId, 'cross_user_access_denied');
+    assert.match(safe.at(-1).observed, /B 읽기 HTTP 404, 수정 HTTP 404, 삭제 HTTP 404 \(모두 거부됨\), B 목록에 A의 메모 없음, A의 메모 그대로/u);
+    assert.equal(safe.find((r) => r.attackId === 'student_login_crud_flow').observed,
+      '추가 성공(201), 조회 성공(200), 수정 성공(200), 삭제 성공(200), 삭제 뒤 조회 404 성공(404)');
+    assert.ok(safe.every((r) => r.observed.length <= 300 && r.expected.length <= 300));
+    assert.doesNotMatch(JSON.stringify(safe), /pw-a|pw-b|token-a|token-b|note-\d|점검용 가상 메모 본문/u);
+
+    globalThis.fetch = fakeServer({ enforceOwner: false });
+    const open = await runAttackChecks(config);
+    assert.match(open.at(-1).observed, /거부되지 않은 요청이 있음/u);
+    assert.match(open.at(-1).observed, /B 목록에 A의 메모 있음/u);
+    assert.doesNotMatch(JSON.stringify(open), /pw-a|pw-b|token-a|token-b|note-\d/u);
+  });
+});
+
+test('4단계 자기 점검: A·B 로그인 정보가 없으면 미실행으로 남기고 요청을 보내지 않는다', async () => {
+  await withCheckEnv({ ALEPH_CHECK_EMAIL: 'a@example.com', ALEPH_CHECK_PASSWORD: 'pw-a' }, async () => {
+    const seen = [];
+    const server = fakeServer({ enforceOwner: true });
+    globalThis.fetch = async (url, init) => { seen.push(`${init?.method ?? 'GET'} ${new URL(String(url)).pathname}`); return server(url, init); };
+    const results = await runAttackChecks(config);
+    assert.match(results.at(-1).observed, /^미실행: A·B 로그인 정보/u);
+    assert.equal(seen.filter((entry) => entry.startsWith('POST /auth/')).length, 1, 'A의 정상 로그인 점검만 로그인한다');
+  });
 });

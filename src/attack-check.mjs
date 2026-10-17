@@ -1,7 +1,7 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
 export async function runAttackChecks(config) {
-  if (![1, 2, 3].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  if (![1, 2, 3, 4].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -13,7 +13,7 @@ export async function runAttackChecks(config) {
     throw new Error('aleph.config.json의 실제 배포 주소를 먼저 넣어 주세요.');
   }
   if (config.step === 2) return runStepTwoChecks(app);
-  if (config.step === 3) return runStepThreeChecks(app, config);
+  if (config.step === 3 || config.step === 4) return runStepThreeChecks(app, config);
   if (typeof config.sampleMarker !== 'string' || !config.sampleMarker) throw new Error('가상 메모의 확인 표시를 넣어 주세요.');
   const response = await fetch(new URL('/data.json', app), {
     redirect: 'error', signal: AbortSignal.timeout(10000),
@@ -147,14 +147,71 @@ async function studentLoginFlow(app, config) {
   return { attackId: 'student_login_crud_flow', expected, observed: steps.join(', ').slice(0, 290) };
 }
 
+// 4단계: A가 만든 점검용 메모를 B의 로그인으로 읽기·수정·삭제해 보고, 거부되며 A의 메모가 그대로인지 봅니다.
+// A·B 로그인 정보는 환경변수(ALEPH_CHECK_EMAIL·PASSWORD, ALEPH_CHECK_EMAIL_B·PASSWORD_B)로만 받고 파일에 저장하지 않습니다.
+// 기록에는 HTTP 상태와 예/아니오만 남깁니다. 토큰·비밀번호·메모 본문·메모 id는 기록하지 않습니다.
+const denied = (status) => status === 404 || status === 401 || status === 403;
+
+async function passwordLogin(config, email, password) {
+  try {
+    const login = await fetch(`${config.identityProvider.issuer}/token?grant_type=password`, {
+      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10000),
+      headers: { apikey: PUBLISHABLE_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await login.json().catch(() => null);
+    return typeof data?.access_token === 'string' && login.ok
+      ? { token: data.access_token } : { status: login.status };
+  } catch {
+    return { unreachable: true };
+  }
+}
+
+async function crossUserFlow(app, config) {
+  const attackId = 'cross_user_access_denied';
+  const expected = 'B가 A의 메모를 읽기·수정·삭제하려 하면 거부(404·401·403)되고 A의 메모는 그대로이며 B의 목록에도 없음';
+  const [emailA, passwordA] = [process.env.ALEPH_CHECK_EMAIL, process.env.ALEPH_CHECK_PASSWORD];
+  const [emailB, passwordB] = [process.env.ALEPH_CHECK_EMAIL_B, process.env.ALEPH_CHECK_PASSWORD_B];
+  if (!emailA || !passwordA || !emailB || !passwordB) {
+    return { attackId, expected,
+      observed: '미실행: A·B 로그인 정보(ALEPH_CHECK_EMAIL·PASSWORD, ALEPH_CHECK_EMAIL_B·PASSWORD_B)가 없어 B의 타인 메모 점검을 보내지 않음' };
+  }
+  const [a, b] = [await passwordLogin(config, emailA, passwordA), await passwordLogin(config, emailB, passwordB)];
+  for (const [name, result] of [['A', a], ['B', b]]) {
+    if (result.unreachable) return { attackId, expected, observed: '미실행: 로그인 서버에 연결하지 못함' };
+    if (!result.token) return { attackId, expected, observed: `${name} 로그인 단계에서 멈춤 (HTTP ${result.status})` };
+  }
+  const created = await probe(app, '/api/notes', { method: 'POST', token: a.token, body: { title: '점검용 가상 메모', body: '점검용' } });
+  const id = created.data?.id;
+  if (!(created.status >= 200 && created.status < 300 && typeof id === 'string')) {
+    return { attackId, expected, observed: `A의 점검용 메모를 만들지 못해 멈춤 (HTTP ${created.status})` };
+  }
+  const path = `/api/notes/${id}`;
+  try {
+    // 목록은 수정·삭제를 시도하기 전에 읽습니다. 거부되지 않는 서버에서는 삭제가 먼저 되면 목록 노출을 놓치기 때문입니다.
+    const read = await probe(app, path, { token: b.token });
+    const list = await probe(app, '/api/notes', { token: b.token });
+    const edit = await probe(app, path, { method: 'PUT', token: b.token, body: { title: '침해 시도', body: '침해 시도' } });
+    const remove = await probe(app, path, { method: 'DELETE', token: b.token });
+    const stillThere = await probe(app, path, { token: a.token });
+    const allDenied = denied(read.status) && denied(edit.status) && denied(remove.status);
+    const inList = Array.isArray(list.data) && list.data.some((note) => note?.id === id);
+    const intact = stillThere.status === 200 && stillThere.data?.title === '점검용 가상 메모';
+    return { attackId, expected,
+      observed: `B 읽기 HTTP ${read.status}, 수정 HTTP ${edit.status}, 삭제 HTTP ${remove.status} (${allDenied ? '모두 거부됨' : '거부되지 않은 요청이 있음'}), B 목록에 A의 메모 ${inList ? '있음' : '없음'}, A의 메모 ${intact ? '그대로' : '바뀌었거나 사라짐'}`.slice(0, 290) };
+  } finally {
+    await probe(app, path, { method: 'DELETE', token: a.token }); // 점검용 메모는 A가 지웁니다.
+  }
+}
+
 async function runStepThreeChecks(app, config) {
   const issuer = config.identityProvider?.issuer;
-  if (typeof issuer !== 'string') throw new Error('3단계에는 aleph.config.json의 identityProvider가 필요합니다.');
+  if (typeof issuer !== 'string') throw new Error('3단계 이후에는 aleph.config.json의 identityProvider가 필요합니다.');
   const anonymousList = await probe(app, '/api/notes');
   const anonymousCreate = await probe(app, '/api/notes', { method: 'POST', body: { title: '로그인 없는 추가', body: '거부되어야 함' } });
   const forged = await probe(app, '/api/notes', { token: forgedToken(issuer) });
   const staticFile = await probe(app, '/data.json');
-  return [
+  const results = [
     { attackId: 'anonymous_list_read', expected: '로그인 없이 /api/notes를 불러도 자료가 없고 401·403으로 거부됨',
       observed: describeRefusal(anonymousList) },
     { attackId: 'anonymous_note_create', expected: '로그인 없이 메모를 추가하려 하면 401·403으로 거부됨',
@@ -165,4 +222,6 @@ async function runStepThreeChecks(app, config) {
       observed: staticFile.status === null ? NOT_RUN_UNREACHABLE : `HTTP ${staticFile.status}` },
     await studentLoginFlow(app, config),
   ];
+  if (config.step === 4) results.push(await crossUserFlow(app, config));
+  return results;
 }

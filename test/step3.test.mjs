@@ -212,7 +212,7 @@ test('Supabase 저장소는 content↔body를 바꾸고 owner_id를 저장하며
 });
 
 test('aleph.config.json은 틀의 토큰 검사기가 요구하는 모양이고 비밀 값이 없다', () => {
-  assert.equal(config.step, 3);
+  assert.ok(config.step >= 3, '로그인 설정은 3단계부터 필요합니다');
   const provider = config.identityProvider;
   assert.deepEqual(Object.keys(provider).sort(), ['audience', 'issuer', 'jwksUrl']);
   assert.match(provider.issuer, /^https:\/\/[a-z0-9]+\.supabase\.co\/auth\/v1$/u);
@@ -224,7 +224,7 @@ test('aleph.config.json은 틀의 토큰 검사기가 요구하는 모양이고 
   assert.doesNotMatch(JSON.stringify(config), /sb_secret_|service_role|eyJ|password|apikey/iu); // 저장소 이름의 'secret'은 비밀 값이 아니다
 });
 
-test('3단계 배포 식별 정보에는 시작 틀 표시가 없고 4단계는 아직 허용하지 않는다', () => {
+test('3단계 배포 식별 정보에는 시작 틀 표시가 없고 5단계는 아직 허용하지 않는다', () => {
   const env = {
     VERCEL_GIT_PROVIDER: 'github', VERCEL_GIT_REPO_OWNER: 'Student-A', VERCEL_GIT_REPO_SLUG: 'aleph-defense',
     VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40), VERCEL_URL: 'student-defense-123.vercel.app',
@@ -232,7 +232,7 @@ test('3단계 배포 식별 정보에는 시작 틀 표시가 없고 4단계는 
   const three = deploymentIdentity(env, { step: 3, judgeIssuer: config.judgeIssuer });
   assert.equal(three.step, 3);
   assert.equal(JSON.stringify(three).includes('SAMPLE_NOTE'), false);
-  assert.throws(() => deploymentIdentity(env, { step: 4, judgeIssuer: config.judgeIssuer }));
+  assert.throws(() => deploymentIdentity(env, { step: 5, judgeIssuer: config.judgeIssuer }));
 });
 
 test('3단계 자기 점검: 거부된 요청·거부되지 않은 요청·연결 실패를 구분해 기록하고 본문·토큰은 싣지 않는다', async () => {
@@ -248,7 +248,7 @@ test('3단계 자기 점검: 거부된 요청·거부되지 않은 요청·연�
       if (pathname === '/data.json') return new Response('Not Found', { status: 404 });
       return new Response(JSON.stringify({ error: 'UNAUTHORIZED' }), { status: 401 });
     };
-    const results = await runAttackChecks(config);
+    const results = await runAttackChecks({ ...config, step: 3 });
     assert.deepEqual(results.map((r) => r.attackId), ['anonymous_list_read', 'anonymous_note_create', 'forged_token_read', 'static_data_json_closed', 'student_login_crud_flow']);
     assert.match(results[0].observed, /HTTP 401, 자료 없이 거부됨/u);
     assert.equal(results[3].observed, 'HTTP 404');
@@ -257,12 +257,12 @@ test('3단계 자기 점검: 거부된 요청·거부되지 않은 요청·연�
     assert.ok(results.every((r) => r.observed.length <= 300 && r.expected.length <= 300));
 
     globalThis.fetch = async () => new Response(JSON.stringify([{ id: 'x', title: '노출', body: '노출' }]), { status: 200 });
-    const open = await runAttackChecks(config);
+    const open = await runAttackChecks({ ...config, step: 3 });
     assert.match(open[0].observed, /거부되지 않음 \(자료 1건\)/u);
     assert.doesNotMatch(JSON.stringify(open), /노출/u);
 
     globalThis.fetch = async () => { throw new TypeError('fetch failed'); };
-    const offline = await runAttackChecks(config);
+    const offline = await runAttackChecks({ ...config, step: 3 });
     assert.match(offline[0].observed, /^미실행/u);
   } finally {
     globalThis.fetch = original;
@@ -291,7 +291,7 @@ test('정상 A 로그인 점검은 환경변수가 있을 때만 보내고 비�
       if (pathname === '/api/notes/n-1' && method === 'DELETE') return new Response(JSON.stringify({ id: 'n-1' }), { status: 200 });
       return new Response('{}', { status: 404 });
     };
-    const flow = (await runAttackChecks(config)).at(-1);
+    const flow = (await runAttackChecks({ ...config, step: 3 })).at(-1);
     assert.equal(flow.attackId, 'student_login_crud_flow');
     assert.equal(flow.observed, '추가 성공(201), 조회 성공(200), 수정 성공(200), 삭제 성공(200), 삭제 뒤 조회 404 성공(404)');
     assert.doesNotMatch(JSON.stringify(flow), /pw-for-test-only|token-from-login/u);
