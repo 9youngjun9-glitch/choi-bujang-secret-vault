@@ -192,13 +192,14 @@ npm run test:step2 && npm run test:step3 && npm run test:step4 && npm run test:s
 - `npm run bundle`의 자기 점검과 배포된 Data API에 대한 공개 키 직접 요청.
 - 심판 판정.
 
-## 6단계 저장점: 등록한 기기만 자료실에 들어옴 (진행 중)
+## 6단계 저장점: 등록한 기기만 자료실에 들어옴
 
 ### 현재 작동하는 기능
 
 - `src/decider.mjs`의 `decide(request)`에 규칙 `device_registered`를 넣었습니다(`RULE_IDS`에는 이 이름만 있습니다).
 - `request.deviceRegistered === true`이면 `allow`·`approved`, 그 외(`false`, 값 없음, 문자열 등)는 `deny`·`device_not_registered`로 거부합니다.
 - 기기 등록 여부만 봅니다. 요청의 읽기·쓰기 구분과 다른 규칙은 넣지 않았습니다. 자료실 주소와 화면은 그대로입니다.
+- `aleph.config.json`의 `step`은 6입니다. 빌드·배포 식별·자기 점검이 6단계를 허용하도록 고쳤고, 시험은 7단계를 거부하도록 바꿨습니다(자료실 주소·화면·API는 그대로).
 - 이번 단계에는 따로 설치할 접속 프로그램이 없고, 새 인증서·CA·서명 키도 만들지 않았습니다.
 
 ### 확인 순서

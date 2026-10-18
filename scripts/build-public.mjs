@@ -14,7 +14,7 @@ if (config.step === 1) {
   await mkdir(resolve(root, 'public'), { recursive: true });
   await copyFile(source, output);
   console.log('실습용 공개 자료를 public/data.json에 복사했습니다.');
-} else if ([2, 3, 4, 5].includes(config.step)) {
+} else if ([2, 3, 4, 5, 6].includes(config.step)) {
   // 2단계부터: 자료는 서버 함수(api/notes.js)가 학습용 DB에서 읽습니다. 정적 폴더에는 자료를 두지 않습니다.
   // 3단계부터는 서버 함수가 로그인한 요청에만 자료를 돌려주고, 4단계부터는 본인 메모만 돌려줍니다.
   // 5단계부터는 화면의 자료 요청이 서버 함수 한곳으로만 가고, 자료 저장소를 직접 부르는 권한은 회수됩니다.

@@ -224,7 +224,7 @@ test('aleph.config.json은 틀의 토큰 검사기가 요구하는 모양이고 
   assert.doesNotMatch(JSON.stringify(config), /sb_secret_|service_role|eyJ|password|apikey/iu); // 저장소 이름의 'secret'은 비밀 값이 아니다
 });
 
-test('3단계 배포 식별 정보에는 시작 틀 표시가 없고 6단계는 아직 허용하지 않는다', () => {
+test('3단계 배포 식별 정보에는 시작 틀 표시가 없고 7단계는 아직 허용하지 않는다', () => {
   const env = {
     VERCEL_GIT_PROVIDER: 'github', VERCEL_GIT_REPO_OWNER: 'Student-A', VERCEL_GIT_REPO_SLUG: 'aleph-defense',
     VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40), VERCEL_URL: 'student-defense-123.vercel.app',
@@ -232,7 +232,7 @@ test('3단계 배포 식별 정보에는 시작 틀 표시가 없고 6단계는 
   const three = deploymentIdentity(env, { step: 3, judgeIssuer: config.judgeIssuer });
   assert.equal(three.step, 3);
   assert.equal(JSON.stringify(three).includes('SAMPLE_NOTE'), false);
-  assert.throws(() => deploymentIdentity(env, { step: 6, judgeIssuer: config.judgeIssuer }));
+  assert.throws(() => deploymentIdentity(env, { step: 7, judgeIssuer: config.judgeIssuer }));
 });
 
 test('3단계 자기 점검: 거부된 요청·거부되지 않은 요청·연결 실패를 구분해 기록하고 본문·토큰은 싣지 않는다', async () => {
