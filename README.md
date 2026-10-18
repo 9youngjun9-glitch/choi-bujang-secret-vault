@@ -214,3 +214,26 @@ npm run test:step2 && npm run test:step3 && npm run test:step4 && npm run test:s
 실행함: `npm run decider:test`에서 위 두 건이 통과했습니다. 별도로 가상 요청을 직접 넣어 등록 기기는 `allow`·`approved`, 미등록 기기는 `deny`·`device_not_registered`가 나오는 것을 봤습니다.
 
 미실행: 심판의 미등록 기기 공격과 판정, 반 엔진 연결.
+
+## 7단계 저장점: 평소와 다른 접속은 다시 확인함 (진행 중)
+
+### 현재 작동하는 기능
+
+- `src/decider.mjs`에 입력 검사 `readAccessSignals`(출처 구분)와 규칙 `step_up_required`를 더했습니다. 기기 규칙 `device_registered`는 그대로 먼저 적용됩니다.
+- 평소와 다른 시각(7~22시 밖) + 처음 보는 네트워크(`unusual`) + 5분 안 10회 이상 사건이 모두 있을 때만 `step_up`·`step_up_required`로 응답합니다. 지역(`region`) 하나만으로는 차단도 추가 확인도 하지 않습니다.
+- `signals.source`가 `judge_fixture`인 가상 사건만 읽습니다. 출처가 없거나 불명확하면 값을 정상으로 채우지 않고 `null`로 둡니다. 헤더·`geo`·`ip` 등 계약에 없는 값은 읽지 않습니다. 시각·횟수 기준은 계약에 없어 제가 정한 값입니다.
+- 이미 다시 확인한 요청(`stepUp.verified`가 true, 나이 0~900초)은 `allow`로 응답합니다.
+
+### 다시 로그인 계약 확인 (2026-10-18)
+
+- `docs/DECIDER_REQUEST.md`에는 엔진이 넘기는 `stepUp {verified, authAgeSeconds}` 값만 있습니다. 같은 로그인으로 다시 로그인한 시각을 엔진이 어떻게 검증하는지, 자료 요청을 어디서 막고 다시 판정하는지에 대한 계약은 이 저장소에 없습니다. 자료 서버(`api/`)는 판정기를 부르지 않습니다.
+- 따라서 실제 자료 차단과 새 로그인 뒤 재판정은 **미실행**입니다. 토큰 원문은 어디에도 기록하지 않았습니다.
+
+### 확인 순서
+
+1. `npm run decider:test`: 기기 규칙 두 건과 복합 이상·다시 확인 두 건이 통과합니다.
+2. `npm run fixture:7`: `정상 사건: allow`, `복합 이상 사건: step_up`이 나옵니다.
+3. `node --test test/step7.test.mjs`: 출처 구분, 위조 신호 무시, 지역만으로는 확인하지 않음 등 8건이 통과합니다.
+4. 이 시험은 가상 요청 연습이며 심판 판정이 아닙니다.
+
+미실행: 실제 재로그인 시각 검증, 확인 전 자료 차단, 새 로그인 뒤 재판정, 심판 판정.
