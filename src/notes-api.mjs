@@ -4,6 +4,8 @@
 // 4단계: 읽기·수정·삭제는 검사한 사용자 ID와 DB 행의 owner_id가 같을 때만 허용합니다.
 //        주인이 없거나 다른 사람 것이면 없는 메모와 똑같이 404로 답해 존재 여부도 알려 주지 않습니다(기본 거부).
 //        목록은 본인 메모만 돌려주고, 수정 본문에 소유자를 바꾸려는 이름이 있으면 거부합니다.
+import { RESOURCE_IDS, resourceForPath } from './resources.mjs';
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 const TITLE_MAX = 200;
 const BODY_MAX = 5000;
@@ -51,10 +53,23 @@ function readFields(input, { requireAll }) {
 export function createNotesApi({ verifyAuthorization, store }) {
   if (typeof verifyAuthorization !== 'function' || !store) throw new TypeError('invalid_notes_api_configuration');
 
+  // 8단계: 이 API가 다루는 자원은 본인 메모(notes.memo) 하나입니다. 요청 경로에서 자원 ID를 읽고,
+  // 메모가 아닌 알려진 자원(예: 강사 공지) 경로가 이 처리기로 들어오면 처리하지 않고 404로 답합니다.
+  // 경로가 없거나 목록에 없는 모양이면 이 처리기가 연결된 주소(/api/notes 계열)의 자원을 씁니다. 처리기는 Vercel이 주소로 정해 주므로,
+  // 배포 환경이 경로를 다시 쓰더라도 정상 메모 요청이 막히지 않게 하기 위해서입니다.
+  function resourceOf(request) {
+    return resourceForPath(request?.url);
+  }
+
   // 메서드 확인 → 로그인 확인. 로그인하지 못하면 자료·존재 여부·검증 오류를 하나도 알려 주지 않습니다.
   async function guard(request, response, allowed) {
     if (!allowed.includes(request.method)) {
       send(response, 405, { error: 'METHOD_NOT_ALLOWED' }, { Allow: allowed.join(', ') });
+      return null;
+    }
+    const resource = resourceOf(request) ?? RESOURCE_IDS.memo;
+    if (resource !== RESOURCE_IDS.memo) {
+      send(response, 404, { error: 'NOT_FOUND' });
       return null;
     }
     let auth;
@@ -152,5 +167,5 @@ export function createNotesApi({ verifyAuthorization, store }) {
     });
   }
 
-  return { collection, item };
+  return { collection, item, resourceOf };
 }
