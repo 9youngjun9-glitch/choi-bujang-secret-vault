@@ -191,3 +191,25 @@ npm run test:step2 && npm run test:step3 && npm run test:step4 && npm run test:s
 - 배포된 사이트에서의 실제 A·B 로그인 확인(시크릿 창에서 학생이 확인).
 - `npm run bundle`의 자기 점검과 배포된 Data API에 대한 공개 키 직접 요청.
 - 심판 판정.
+
+## 6단계 저장점: 등록한 기기만 자료실에 들어옴 (진행 중)
+
+### 현재 작동하는 기능
+
+- `src/decider.mjs`의 `decide(request)`에 규칙 `device_registered`를 넣었습니다(`RULE_IDS`에는 이 이름만 있습니다).
+- `request.deviceRegistered === true`이면 `allow`·`approved`, 그 외(`false`, 값 없음, 문자열 등)는 `deny`·`device_not_registered`로 거부합니다.
+- 기기 등록 여부만 봅니다. 요청의 읽기·쓰기 구분과 다른 규칙은 넣지 않았습니다. 자료실 주소와 화면은 그대로입니다.
+- 이번 단계에는 따로 설치할 접속 프로그램이 없고, 새 인증서·CA·서명 키도 만들지 않았습니다.
+
+### 확인 순서
+
+1. 저장소 폴더에서 `npm run decider:test`를 실행합니다.
+2. 정상 결과: `통과 · 등록 기기의 정상 요청`(allow)과 `통과 · 미등록 기기의 가상 요청`(deny, 이유 코드 `device_not_registered`)이 모두 나오고 종료 코드가 0입니다.
+3. 거부되어야 할 결과: 미등록 기기 요청이 `allow`로 나오면 시험이 `확인 필요`로 실패합니다.
+4. 이 시험은 가상 요청 연습이며 심판 판정이 아닙니다. 실제 미등록 기기 공격과 판정은 심판이 맡습니다.
+
+### 확인 기록 (2026-10-18)
+
+실행함: `npm run decider:test`에서 위 두 건이 통과했습니다. 별도로 가상 요청을 직접 넣어 등록 기기는 `allow`·`approved`, 미등록 기기는 `deny`·`device_not_registered`가 나오는 것을 봤습니다.
+
+미실행: 심판의 미등록 기기 공격과 판정, 반 엔진 연결.
