@@ -159,3 +159,35 @@
 - 서버는 `service_role` 키로 DB에 접속해 RLS를 거치지 않습니다. 본인 메모만 보이게 하는 보장은 서버 코드의 소유자 비교와 쿼리 조건이 맡습니다. DB 권한 SQL을 적용하면 직접 접근하는 경로에서도 본인 행만 허용됩니다.
 - `/api/notes`에는 요청 횟수 제한이 없습니다(로그인 시도 제한은 Supabase가 합니다).
 - 옛 커밋 `91514d0`와 옛 배포에 메모가 남아 있다는 2단계의 한계는 그대로입니다.
+
+## 5단계 저장점: 자료 요청을 서버 한곳으로 모음
+
+> 위 2·3·4단계 기록 중 "미실행"·"남은 약점"으로 적힌 DB 권한 항목은 이 단계에서 학생이 직접 실행해 해소했습니다(아래 확인 기록).
+
+### 현재 작동하는 기능
+
+- 메모 읽기·추가·수정·삭제는 `/api/notes`, `/api/notes/:id` 서버 함수 한곳으로만 갑니다. 화면 코드(`public/index.html`)에는 자료 저장소를 직접 부르는 코드(`.from(`, `.rpc(`, `/rest/v1`, `vault_notes`)가 없고, 로그인·로그아웃(Auth) 호출만 그대로 있습니다.
+- 서버 함수의 로그인 검사(`src/verify-login.mjs`)와 소유자 검사, 서버 전용 키 설정은 바꾸지 않았습니다.
+- `aleph.config.json`의 `originalApiUrl`은 쿼리 없는 HTTPS 경로(`…/rest/v1/vault_notes`)이고, `step`은 5입니다.
+- 학습 DB의 `vault_notes`는 PUBLIC·`anon`·`authenticated`의 직접 권한을 거두었습니다. 다른 테이블은 건드리지 않았습니다.
+- 자기 점검에 `original_api_direct_anon`을 추가했습니다. 공개 키로 `originalApiUrl`을 직접 불러 HTTP 상태와 건수만 기록하고(본문·키 기록 없음), 연결하지 못하면 "미실행"으로 적습니다.
+
+### 다시 실행하는 방법
+
+```
+npm ci
+npm run build -- --local
+npm run test:r5 && npm run test:package
+npm run test:step2 && npm run test:step3 && npm run test:step4 && npm run test:step5
+```
+
+### 확인 기록 (2026-10-18)
+
+실행함:
+- 위 시험 전부 통과(가짜 DB·가짜 fetch 사용). 5단계 배포 식별 허용, 6단계 거부 포함.
+- 학생이 학습 DB에서 권한 회수 SQL을 직접 실행했습니다. 이후 읽기 전용 조회로 `relacl`에 postgres와 service_role만 남고, RLS 켜짐, 정책 0개, A 메모 4건·B 메모 1건임을 확인했습니다.
+
+미실행:
+- 배포된 사이트에서의 실제 A·B 로그인 확인(시크릿 창에서 학생이 확인).
+- `npm run bundle`의 자기 점검과 배포된 Data API에 대한 공개 키 직접 요청.
+- 심판 판정.

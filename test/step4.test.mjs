@@ -268,8 +268,8 @@ test('allowedRoutes는 이 API가 실제로 받는 메서드·경로와 같다',
   for (const file of ['../api/notes.js', '../api/notes/[id].js']) await readFile(new URL(file, import.meta.url), 'utf8');
 });
 
-test('aleph.config.json은 4단계이고 로그인 설정에 비밀 값이 없으며 4단계 배포 식별을 허용한다', () => {
-  assert.equal(config.step, 4);
+test('aleph.config.json은 4단계 이상이고 로그인 설정에 비밀 값이 없으며 4단계 배포 식별을 허용한다', () => {
+  assert.ok(config.step >= 4, '소유자 검사 설정은 4단계부터 필요합니다');
   assert.deepEqual(Object.keys(config.identityProvider).sort(), ['audience', 'issuer', 'jwksUrl']);
   assert.doesNotMatch(JSON.stringify(config), /sb_secret_|service_role|eyJ|password|apikey/iu);
   const env = {
@@ -277,7 +277,7 @@ test('aleph.config.json은 4단계이고 로그인 설정에 비밀 값이 없�
     VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40), VERCEL_URL: 'student-defense-123.vercel.app',
   };
   assert.equal(deploymentIdentity(env, { step: 4, judgeIssuer: config.judgeIssuer }).step, 4);
-  assert.throws(() => deploymentIdentity(env, { step: 5, judgeIssuer: config.judgeIssuer }));
+  assert.throws(() => deploymentIdentity(env, { step: 6, judgeIssuer: config.judgeIssuer }));
 });
 
 // ---- 자기 점검(B가 A의 메모를 건드려 보는 점검)을 가짜 서버로 시험합니다 ----
@@ -330,7 +330,7 @@ const BOTH = { ALEPH_CHECK_EMAIL: 'a@example.com', ALEPH_CHECK_PASSWORD: 'pw-a',
 test('4단계 자기 점검: 소유자를 지키는 서버는 모두 거부됨으로, 지키지 않는 서버는 거부되지 않음으로 기록하고 토큰·비밀번호·id는 싣지 않는다', async () => {
   await withCheckEnv(BOTH, async () => {
     globalThis.fetch = fakeServer({ enforceOwner: true });
-    const safe = await runAttackChecks(config);
+    const safe = await runAttackChecks({ ...config, step: 4 });
     assert.equal(safe.at(-1).attackId, 'cross_user_access_denied');
     assert.match(safe.at(-1).observed, /B 읽기 HTTP 404, 수정 HTTP 404, 삭제 HTTP 404 \(모두 거부됨\), B 목록에 A의 메모 없음, A의 메모 그대로/u);
     assert.equal(safe.find((r) => r.attackId === 'student_login_crud_flow').observed,
@@ -339,7 +339,7 @@ test('4단계 자기 점검: 소유자를 지키는 서버는 모두 거부됨�
     assert.doesNotMatch(JSON.stringify(safe), /pw-a|pw-b|token-a|token-b|note-\d|점검용 가상 메모 본문/u);
 
     globalThis.fetch = fakeServer({ enforceOwner: false });
-    const open = await runAttackChecks(config);
+    const open = await runAttackChecks({ ...config, step: 4 });
     assert.match(open.at(-1).observed, /거부되지 않은 요청이 있음/u);
     assert.match(open.at(-1).observed, /B 목록에 A의 메모 있음/u);
     assert.doesNotMatch(JSON.stringify(open), /pw-a|pw-b|token-a|token-b|note-\d/u);
@@ -351,7 +351,7 @@ test('4단계 자기 점검: A·B 로그인 정보가 없으면 미실행으로 
     const seen = [];
     const server = fakeServer({ enforceOwner: true });
     globalThis.fetch = async (url, init) => { seen.push(`${init?.method ?? 'GET'} ${new URL(String(url)).pathname}`); return server(url, init); };
-    const results = await runAttackChecks(config);
+    const results = await runAttackChecks({ ...config, step: 4 });
     assert.match(results.at(-1).observed, /^미실행: A·B 로그인 정보/u);
     assert.equal(seen.filter((entry) => entry.startsWith('POST /auth/')).length, 1, 'A의 정상 로그인 점검만 로그인한다');
   });

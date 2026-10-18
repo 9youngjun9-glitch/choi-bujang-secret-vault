@@ -1,7 +1,7 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
 export async function runAttackChecks(config) {
-  if (![1, 2, 3, 4].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  if (![1, 2, 3, 4, 5].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -13,7 +13,7 @@ export async function runAttackChecks(config) {
     throw new Error('aleph.config.json의 실제 배포 주소를 먼저 넣어 주세요.');
   }
   if (config.step === 2) return runStepTwoChecks(app);
-  if (config.step === 3 || config.step === 4) return runStepThreeChecks(app, config);
+  if (config.step >= 3 && config.step <= 5) return runStepThreeChecks(app, config);
   if (typeof config.sampleMarker !== 'string' || !config.sampleMarker) throw new Error('가상 메모의 확인 표시를 넣어 주세요.');
   const response = await fetch(new URL('/data.json', app), {
     redirect: 'error', signal: AbortSignal.timeout(10000),
@@ -204,6 +204,33 @@ async function crossUserFlow(app, config) {
   }
 }
 
+// 5단계: 자료 저장소(Supabase Data API)를 공개 키(anon)로 직접 불러 보고, 권한 없이 거부되는지 봅니다.
+// 주소는 aleph.config.json의 originalApiUrl 그대로(쿼리 없음)이고, 사용하는 키는 화면에도 있는 공개용 publishable 키뿐입니다.
+// 응답 본문은 기록하지 않고 HTTP 상태와 건수만 남깁니다. 연결하지 못하면 "미실행"으로 적습니다.
+async function directAnonCheck(config) {
+  const attackId = 'original_api_direct_anon';
+  const expected = '공개 키(anon)로 자료 저장소를 직접 불러도 자료가 없고 401·403으로 거부됨';
+  let url;
+  try {
+    url = new URL(config.originalApiUrl);
+  } catch {
+    return { attackId, expected, observed: '미실행: aleph.config.json의 originalApiUrl이 올바른 주소가 아님' };
+  }
+  if (url.protocol !== 'https:' || url.search || url.hash || url.username || url.password) {
+    return { attackId, expected, observed: '미실행: originalApiUrl은 쿼리 없는 HTTPS 주소여야 함' };
+  }
+  try {
+    const response = await fetch(url, {
+      redirect: 'error', signal: AbortSignal.timeout(10000), headers: { apikey: PUBLISHABLE_KEY },
+    });
+    let data = null;
+    try { data = await response.json(); } catch { /* 본문이 없거나 JSON이 아님 */ }
+    return { attackId, expected, observed: describeRefusal({ status: response.status, data }) };
+  } catch {
+    return { attackId, expected, observed: '미실행: 자료 저장소 주소에 연결하지 못해 요청을 보내지 못함' };
+  }
+}
+
 async function runStepThreeChecks(app, config) {
   const issuer = config.identityProvider?.issuer;
   if (typeof issuer !== 'string') throw new Error('3단계 이후에는 aleph.config.json의 identityProvider가 필요합니다.');
@@ -222,6 +249,7 @@ async function runStepThreeChecks(app, config) {
       observed: staticFile.status === null ? NOT_RUN_UNREACHABLE : `HTTP ${staticFile.status}` },
     await studentLoginFlow(app, config),
   ];
-  if (config.step === 4) results.push(await crossUserFlow(app, config));
+  if (config.step >= 4) results.push(await crossUserFlow(app, config));
+  if (config.step >= 5) results.push(await directAnonCheck(config));
   return results;
 }
