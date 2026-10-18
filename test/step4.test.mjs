@@ -277,7 +277,7 @@ test('aleph.config.json은 4단계 이상이고 로그인 설정에 비밀 값�
     VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40), VERCEL_URL: 'student-defense-123.vercel.app',
   };
   assert.equal(deploymentIdentity(env, { step: 4, judgeIssuer: config.judgeIssuer }).step, 4);
-  assert.throws(() => deploymentIdentity(env, { step: 7, judgeIssuer: config.judgeIssuer }));
+  assert.throws(() => deploymentIdentity(env, { step: 8, judgeIssuer: config.judgeIssuer }));
 });
 
 // ---- 자기 점검(B가 A의 메모를 건드려 보는 점검)을 가짜 서버로 시험합니다 ----

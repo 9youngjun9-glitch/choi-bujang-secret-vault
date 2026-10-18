@@ -215,10 +215,11 @@ npm run test:step2 && npm run test:step3 && npm run test:step4 && npm run test:s
 
 미실행: 심판의 미등록 기기 공격과 판정, 반 엔진 연결.
 
-## 7단계 저장점: 평소와 다른 접속은 다시 확인함 (진행 중)
+## 7단계 저장점: 평소와 다른 접속은 다시 확인함
 
 ### 현재 작동하는 기능
 
+- `aleph.config.json`의 `step`은 7입니다(빌드·배포 식별·자기 점검이 7단계를 허용하고 시험은 8단계를 거부). 자료실 주소·화면·API는 그대로입니다.
 - `src/decider.mjs`에 입력 검사 `readAccessSignals`(출처 구분)와 규칙 `step_up_required`를 더했습니다. 기기 규칙 `device_registered`는 그대로 먼저 적용됩니다.
 - 평소와 다른 시각(7~22시 밖) + 처음 보는 네트워크(`unusual`) + 5분 안 10회 이상 사건이 모두 있을 때만 `step_up`·`step_up_required`로 응답합니다. 지역(`region`) 하나만으로는 차단도 추가 확인도 하지 않습니다.
 - `signals.source`가 `judge_fixture`인 가상 사건만 읽습니다. 출처가 없거나 불명확하면 값을 정상으로 채우지 않고 `null`로 둡니다. 헤더·`geo`·`ip` 등 계약에 없는 값은 읽지 않습니다. 시각·횟수 기준은 계약에 없어 제가 정한 값입니다.

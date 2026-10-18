@@ -19,7 +19,7 @@ test('step 2 deployment identity has no starter marker; step 1 keeps it', () => 
   assert.equal(JSON.stringify(two).includes('SAMPLE_NOTE'), false);
   const one = deploymentIdentity(env, { step: 1, judgeIssuer, sampleMarker: 'SAMPLE_NOTE_1' });
   assert.equal(one.sampleMarker, 'SAMPLE_NOTE_1');
-  assert.throws(() => deploymentIdentity(env, { step: 7, judgeIssuer }));
+  assert.throws(() => deploymentIdentity(env, { step: 8, judgeIssuer }));
 });
 
 test('step 2 attack check records the closed static path and the still-open API', async () => {

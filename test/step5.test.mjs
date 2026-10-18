@@ -26,16 +26,17 @@ test('화면 코드는 자료 저장소를 직접 부르지 않고 /api/notes �
   assert.doesNotMatch(page, /sb_secret_|service_role/iu, '서버 전용 키는 화면에 없다');
 });
 
-test('aleph.config.json은 5단계 이상이고 5단계 배포 식별을 허용하며 7단계는 아직 허용하지 않는다', async () => {
+test('aleph.config.json은 5단계 이상이고 5단계 배포 식별을 허용하며 8단계는 아직 허용하지 않는다', async () => {
   const { deploymentIdentity } = await import('../scripts/deployment-identity.mjs');
   const env = {
     VERCEL_GIT_PROVIDER: 'github', VERCEL_GIT_REPO_OWNER: 'Student-A', VERCEL_GIT_REPO_SLUG: 'aleph-defense',
     VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40), VERCEL_URL: 'student-defense-123.vercel.app',
   };
   assert.ok(config.step >= 5);
+  assert.equal(deploymentIdentity(env, { step: 7, judgeIssuer: config.judgeIssuer }).step, 7);
   assert.equal(deploymentIdentity(env, { step: 6, judgeIssuer: config.judgeIssuer }).step, 6);
   assert.equal(deploymentIdentity(env, { step: 5, judgeIssuer: config.judgeIssuer }).step, 5);
-  assert.throws(() => deploymentIdentity(env, { step: 7, judgeIssuer: config.judgeIssuer }));
+  assert.throws(() => deploymentIdentity(env, { step: 8, judgeIssuer: config.judgeIssuer }));
 });
 
 test('자기 점검의 직접 요청 확인: 쿼리 없이 originalApiUrl만 부르고 상태·건수만 기록한다', async () => {
