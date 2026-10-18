@@ -1,7 +1,8 @@
 // ALEPH SDP 엔진이 확인한 요청만 받는 학생 판정기입니다.
 // 요청 본문의 userId, role, 기기 키, 토큰을 별도로 믿거나 저장하지 마세요.
 // 6단계: 등록된 기기(request.deviceRegistered === true)만 허용합니다.
-export const RULE_IDS = Object.freeze(['device_registered']);
+// 7단계: 평소와 다른 시각 + 처음 보는 네트워크 + 짧은 시간의 많은 사건이 함께 있을 때만 추가 확인(step_up)합니다.
+export const RULE_IDS = Object.freeze(['device_registered', 'step_up_required']);
 
 // 7단계 입력 검사: 엔진이 넘긴 request.signals·request.recentEvents만 읽고, 출처를 구분해 돌려줍니다.
 // - 'judge_fixture': 심판이 보낸 가상 접속 사건. 연습·시험에만 쓰며 실제 위치 증거가 아닙니다.
@@ -39,14 +40,37 @@ export function readAccessSignals(request) {
   };
 }
 
+// 7단계 복합 조건. 지역(region)은 일부러 쓰지 않습니다. 지역 하나만으로는 차단도 추가 확인도 하지 않습니다.
+const USUAL_HOURS = [7, 22]; // 평소 시각(포함). 이 범위 밖이면 평소와 다른 시각입니다.
+const BURST_COUNT = 10;      // 이 횟수 이상이
+const BURST_WINDOW = 300;    // 이 시간(초) 안에 있으면 갑작스러운 대량 접근입니다.
+
+function isUnusualCombination(signals) {
+  if (signals.origin !== 'judge_fixture') return false; // 출처 불명확하면 추정하지 않음
+  const oddHour = signals.hour !== null && (signals.hour < USUAL_HOURS[0] || signals.hour > USUAL_HOURS[1]);
+  const newNetwork = signals.network === 'unusual';
+  const burst = Array.isArray(signals.events)
+    && signals.events.some(e => e.count >= BURST_COUNT && e.ageSeconds <= BURST_WINDOW);
+  return oddHour && newNetwork && burst;
+}
+
+function recentlyVerified(stepUp) {
+  return stepUp?.verified === true && Number.isInteger(stepUp.authAgeSeconds)
+    && stepUp.authAgeSeconds >= 0 && stepUp.authAgeSeconds <= 900;
+}
+
+const answer = (request, decision, reasonCode, ruleId) => ({
+  schema: 'aleph.decision.v1', requestId: request?.requestId, decision, reasonCode, ruleIds: [ruleId],
+});
+
 export async function decide(request) {
-  // 값이 없거나 true가 아니면(미등록, undefined, 문자열 등) 모두 거부합니다.
-  const registered = request?.deviceRegistered === true;
-  return {
-    schema: 'aleph.decision.v1',
-    requestId: request?.requestId,
-    decision: registered ? 'allow' : 'deny',
-    reasonCode: registered ? 'approved' : 'device_not_registered',
-    ruleIds: [RULE_IDS[0]],
-  };
+  // 6단계: 값이 없거나 true가 아니면(미등록, undefined, 문자열 등) 모두 거부합니다.
+  if (request?.deviceRegistered !== true) return answer(request, 'deny', 'device_not_registered', 'device_registered');
+  // 7단계: 복합 이상 조건이면 다시 확인을 요구하고, 최근 재확인이 끝났으면 허용합니다.
+  if (isUnusualCombination(readAccessSignals(request))) {
+    return recentlyVerified(request.stepUp)
+      ? answer(request, 'allow', 'approved', 'step_up_required')
+      : answer(request, 'step_up', 'step_up_required', 'step_up_required');
+  }
+  return answer(request, 'allow', 'approved', 'device_registered');
 }

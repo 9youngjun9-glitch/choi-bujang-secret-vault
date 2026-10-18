@@ -47,3 +47,30 @@ test('입력 검사만 바뀌었고 6단계 판정은 그대로다', async () =>
   const denied = await decide({ ...normal, deviceRegistered: false });
   assert.deepEqual([denied.decision, denied.reasonCode], ['deny', 'device_not_registered']);
 });
+
+test('복합 이상 사건은 step_up, 정상 사건은 allow이고 재확인 뒤에는 allow', async () => {
+  const { randomUUID } = await import('node:crypto');
+  const flagged = await decide(suspicious);
+  assert.deepEqual([flagged.decision, flagged.reasonCode, flagged.ruleIds], ['step_up', 'step_up_required', ['step_up_required']]);
+  assert.equal((await decide(normal)).decision, 'allow');
+  const again = await decide({ ...suspicious, requestId: randomUUID(), stepUp: { verified: true, authAgeSeconds: 60 } });
+  assert.equal(again.decision, 'allow');
+  const stale = await decide({ ...suspicious, stepUp: { verified: true, authAgeSeconds: 5000 } });
+  assert.equal(stale.decision, 'step_up');
+});
+
+test('지역 하나만, 또는 조건 일부만으로는 추가 확인하지 않는다', async () => {
+  const sig = (patch) => ({ ...suspicious, signals: { ...suspicious.signals, ...patch } });
+  assert.equal((await decide({ ...normal, signals: { ...normal.signals, region: 'foreign' } })).decision, 'allow');
+  assert.equal((await decide(sig({ region: 'local' }))).decision, 'step_up', '지역은 판단에 쓰지 않는다');
+  assert.equal((await decide(sig({ hour: 14 }))).decision, 'allow');
+  assert.equal((await decide(sig({ network: 'usual' }))).decision, 'allow');
+  assert.equal((await decide({ ...suspicious, recentEvents: [] })).decision, 'allow');
+  assert.equal((await decide({ ...suspicious, recentEvents: [{ kind: 'risk_signal', ageSeconds: 60, count: 3 }] })).decision, 'allow');
+});
+
+test('출처가 불명확하거나 위조된 신호는 추가 확인으로 올라가지도 정상으로 채워지지도 않는다', async () => {
+  const unverified = await decide({ ...suspicious, signals: { ...suspicious.signals, source: 'client' } });
+  assert.equal(unverified.decision, 'allow');
+  assert.equal((await decide({ ...suspicious, deviceRegistered: false })).reasonCode, 'device_not_registered');
+});
